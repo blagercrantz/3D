@@ -1,0 +1,206 @@
+import SwiftUI
+
+struct ContentView: View {
+    @State var points: [PointData] = []
+    @State var fov: Double = 180
+    @State var cameraRotation: Double = 0
+    @State var cameraX: Double = 0
+    @State var cameraZ: Double = 0
+    @State var newX: Double = 0
+    @State var newY: Double = 0
+    @State var newZ: Double = 0
+    @State var add = false
+    @State var upPressed = false
+    @State var downPressed = false
+    @State var leftPressed = false
+    @State var rightPressed = false
+    let timer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
+    var body: some View {
+        ZStack {
+            Color.black
+                .ignoresSafeArea()
+            VStack {
+                HStack {
+                    Text("FOV: \(fov, specifier: "%.0f")°")
+                    Spacer()
+                    Button(add ? "Done" : "Add", action: {
+                        withAnimation(.spring(response: 0.2, dampingFraction: 1)) {
+                            add.toggle()
+                        }
+                    })
+                }
+                .foregroundColor(.white)
+                .font(Font.system(.callout, design: .monospaced))
+                .padding(.horizontal, 10)
+                Slider(value: $fov, in: 0...180, step: 1)
+                    .padding(.horizontal, 10)
+                    .tint(Color("AccentColor"))
+                Spacer()
+                ZStack {
+                    ForEach(points) { point in
+                        let distance = computeDistance(x: (point.x - cameraX), y: (point.y - 0.5), z: (point.z - cameraZ))
+                        let sightPoint = PointData(x: cameraX + cos(radiate(input: cameraRotation)) * distance, y: 0.5, z: cameraZ - sin(radiate(input: cameraRotation)) * distance)
+                        let difference = computeDistance(x: (point.x - sightPoint.x), y: (point.y - 0.5), z: (point.z - sightPoint.z))
+                        let angle = computeAngle(a: distance, b: distance, c: difference)
+                        let angleOverFov = angle / radiate(input: fov)
+                        
+                        // find eyeAngle
+                        let distanceToAbove = computeDistance(x: (point.x - cameraX), y: 0, z: (point.z - cameraZ))
+                        let differenceAbove = computeDistance(x: (point.x - sightPoint.x), y: 0, z: (point.z - sightPoint.z))
+                        let aboveAngle = radiate(input: 90) - computeAngle(a: distance, b: distanceToAbove, c: differenceAbove)
+                        let perpDistance = distanceToAbove * sin(aboveAngle)
+                        let perpPoint = PointData(x: cameraX + cos(radiate(input: cameraRotation)) * perpDistance, y: 0.5, z: cameraZ - sin(radiate(input: cameraRotation)) * perpDistance)
+                        let hypotenuse = computeDistance(x: (point.x - perpPoint.x), y: (point.y - 0.5), z: (point.z - perpPoint.z))
+                        let distanceY = abs((point.y - 0.5))
+                        let eyeAngle = asin(distanceY / hypotenuse).isNaN ? .pi / 2 : asin(distanceY / hypotenuse)
+                        
+                        // to know left from right
+                        let rightPoint = PointData(x: cameraX + cos(radiate(input: cameraRotation - 5)) * distance, y: 0.5, z: cameraZ - sin(radiate(input: cameraRotation - 5)) * distance)
+                        let leftPoint = PointData(x: cameraX + cos(radiate(input: cameraRotation + 5)) * distance, y: 0.5, z: cameraZ - sin(radiate(input: cameraRotation + 5)) * distance)
+                        let right = computeDistance(x: (point.x - rightPoint.x), y: 0, z: (point.z - rightPoint.z)) < computeDistance(x: (point.x - leftPoint.x), y: 0, z: (point.z - leftPoint.z))
+                        
+                        Circle()
+                            .foregroundColor(.white)
+                            .frame(width: 3.5, height: 3.5)
+                            .offset(x: angleOverFov * (right ? 370 : -370) * cos(eyeAngle), y: angleOverFov * 370 * (point.y < 0.5 ? sin(eyeAngle) : -sin(eyeAngle)))
+                            .opacity(angleOverFov > 0.498 ? 0 : 1)
+                    }
+                    Circle()
+                        .stroke(.white, lineWidth: 1.2)
+                        .frame(width: 370, height: 370)
+                }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 35)
+                Spacer()
+                if add {
+                    Button("Insert", action: {
+                        points.append(PointData(x: newX, y: newY, z: newZ))
+                    })
+                    .foregroundColor(.white)
+                    .font(Font.system(.callout, design: .monospaced))
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    HStack {
+                        Text("x: \(newX, specifier: "%.2f")")
+                            .foregroundColor(.white)
+                            .font(Font.system(.callout, design: .monospaced))
+                            .padding(.horizontal, 10)
+                        Slider(value: $newX, in: 0...1, step: 0.01)
+                            .padding(.trailing, 10)
+                            .tint(Color("AccentColor"))
+                    }
+                    HStack {
+                        Text("y: \(newY, specifier: "%.2f")")
+                            .foregroundColor(.white)
+                            .font(Font.system(.callout, design: .monospaced))
+                            .padding(.horizontal, 10)
+                        Slider(value: $newY, in: 0...1, step: 0.01)
+                            .padding(.trailing, 10)
+                            .tint(Color("AccentColor"))
+                    }
+                    HStack {
+                        Text("z: \(newZ, specifier: "%.2f")")
+                            .foregroundColor(.white)
+                            .font(Font.system(.callout, design: .monospaced))
+                            .padding(.horizontal, 10)
+                        Slider(value: $newZ, in: 0...1, step: 0.01)
+                            .padding(.trailing, 10)
+                            .tint(Color("AccentColor"))
+                    }
+                } else {
+                    Button(action: {
+                        upPressed = false
+                    }) {
+                        Image(systemName: "arrowtriangle.up.square")
+                            .font(.system(size: 43))
+                            .fontWeight(.ultraLight)
+                            .foregroundColor(.white)
+                    }
+                    .simultaneousGesture(LongPressGesture(minimumDuration: 0).onEnded({ _ in
+                        upPressed = true
+                    }))
+                    HStack(spacing: -9) {
+                        Button(action: {
+                            leftPressed = false
+                        }) {
+                            Image(systemName: "arrowtriangle.left.square")
+                                .font(.system(size: 43))
+                                .fontWeight(.ultraLight)
+                                .foregroundColor(.white)
+                        }
+                        .simultaneousGesture(LongPressGesture(minimumDuration: 0).onEnded({ _ in
+                            leftPressed = true
+                        }))
+                        Button(action: {
+                            downPressed = false
+                        }) {
+                            Image(systemName: "arrowtriangle.down.square")
+                                .font(.system(size: 43))
+                                .fontWeight(.ultraLight)
+                                .foregroundColor(.white)
+                        }
+                        .simultaneousGesture(LongPressGesture(minimumDuration: 0).onEnded({ _ in
+                            downPressed = true
+                        }))
+                        Button(action: {
+                            rightPressed = false
+                        }) {
+                            Image(systemName: "arrowtriangle.right.square")
+                                .font(.system(size: 43))
+                                .fontWeight(.ultraLight)
+                                .foregroundColor(.white)
+                        }
+                        .simultaneousGesture(LongPressGesture(minimumDuration: 0).onEnded({ _ in
+                            rightPressed = true
+                        }))
+                    }
+                    .padding(.top, -10.4)
+                    Text("x: \(cameraX, specifier: "%.2f"), z: \(cameraZ, specifier: "%.2f"), \(cameraRotation, specifier: "%.0f")˚")
+                        .foregroundColor(.white)
+                        .font(Font.system(.callout, design: .monospaced))
+                        .padding(.top, 35)
+                }
+            }
+            .padding(.bottom, 25)
+            .onReceive(timer) { _ in
+                if upPressed {
+                    cameraX += cos(radiate(input: cameraRotation)) * 0.025
+                    cameraZ -= sin(radiate(input: cameraRotation)) * 0.025
+                }
+                if downPressed {
+                    cameraX -= cos(radiate(input: cameraRotation)) * 0.025
+                    cameraZ += sin(radiate(input: cameraRotation)) * 0.025
+                }
+                if leftPressed {
+                    cameraRotation += 5
+                    if cameraRotation >= 360 || cameraRotation <= -360 {
+                        cameraRotation = 0
+                    }
+                }
+                if rightPressed {
+                    cameraRotation -= 5
+                    if cameraRotation >= 360 || cameraRotation <= -360 {
+                        cameraRotation = 0
+                    }
+                }
+            }
+        }
+    }
+}
+func radiate(input: Double) -> Double {
+    return input * .pi / 180.0
+}
+func computeDistance(x: Double, y: Double, z: Double) -> Double {
+    return sqrt(x * x + y * y + z * z)
+}
+func computeAngle(a: Double, b: Double, c: Double) -> Double {
+    let numerator = (a * a) + (b * b) - (c * c)
+    let denominator = 2 * a * b
+    return acos(numerator / denominator)
+}
+struct PointData: Identifiable {
+    let id = UUID()
+    let x: Double
+    let y: Double
+    let z: Double
+}
